@@ -1,96 +1,103 @@
-<!-- index.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Simple WebSocket Chat</title>
-    <style>
-        body { margin: 0; padding-bottom: 3rem; font-family: sans-serif; }
-        #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
-        #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
-        #input:focus { outline: none; }
-        #form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
-        #messages { list-style-type: none; margin: 0; padding: 0; }
-        #messages > li { padding: 0.5rem 1rem; }
-        #messages > li:nth-child(odd) { background: #efefef; }
-    </style>
+  <meta charset="UTF-8" />
+  <title>WebSocket Chat</title>
+  <style>
+    body { font-family: sans-serif; }
+    #messages { list-style: none; padding: 0; }
+    #messages li { padding: 4px; }
+    #typingNotice { font-style: italic; color: gray; }
+  </style>
 </head>
 <body>
-    <ul id="messages"></ul>
-    <form id="form" action="">
-        <input id="input" autocomplete="off" /><button>Send</button>
-    </form>
+  <h2>Chat App</h2>
+  <div>
+    <label for="username">Username:</label>
+    <input id="username" placeholder="Enter username" />
+    <button onclick="setUsername()">Join</button>
+  </div>
 
-    <!-- Include the Socket.IO client library -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        // Connect to the Socket.IO server (defaults to the server that served this page)
-        const socket = io();
-        let username = '';
+  <ul id="messages"></ul>
+  <div id="typingNotice"></div>
 
-        // Get references to the HTML elements
-        const form = document.getElementById('form');
-        const input = document.getElementById('input');
-        const messages = document.getElementById('messages');
+  <input id="message" autocomplete="off" placeholder="Type a message..." />
+  <button onclick="sendMessage()">Send</button>
 
-        // --- Get Username ---
-        function getUsername() {
-            username = prompt("Please enter your username:");
-            if (!username || username.trim() === '') {
-                username = `User_${Math.random().toString(36).substring(2, 7)}`;
-                alert(`No username entered. Assigned: ${username}`);
-            }
-            socket.emit('set username', username); // Send username to server
-        }
+  <h4>Online Users:</h4>
+  <ul id="userList"></ul>
 
-        // --- Sending Messages ---
-        // Add an event listener for when the form is submitted
-        form.addEventListener('submit', function(event) {
-            event.preventDefault(); // Prevent the default form submission (page reload)
-            if (input.value && username) { // Check if the input field is not empty AND username is set
-                // Emit a 'chat message' event to the server with the input value
-                socket.emit('chat message', input.value);
-                input.value = ''; // Clear the input field
-            }
-        });
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let typing = false;
+    let timeout;
 
-        // --- Receiving Messages ---
-        // Add an event listener for 'chat message' events coming FROM the server
-        // This is a CALLBACK function (the anonymous function provided here).
-        // It gets called *later* by the socket.io library when a 'chat message' event arrives.
-        socket.on('chat message', function(data) { // `function(data) {...}` is an ANONYMOUS FUNCTION
-            displayMessage(data.user, data.msg);
-        });
+    const messages = document.getElementById('messages');
+    const input = document.getElementById('message');
+    const typingNotice = document.getElementById('typingNotice');
 
-        // Listen for system messages (like join/leave/welcome)
-        socket.on('system message', function(msg) {
-            displayMessage('System', msg, true);
-        });
+    function setUsername() {
+      const username = document.getElementById('username').value;
+      if (username.trim()) {
+        socket.emit('set username', username.trim());
+        document.getElementById('username').disabled = true;
+      }
+    }
 
-        // --- Utility function to display messages ---
-        function displayMessage(user, msg, isSystem = false) {
-            const item = document.createElement('li'); // Create a new list item element
-            if (isSystem) {
-                item.style.fontStyle = 'italic';
-                item.style.color = 'gray';
-                item.textContent = msg; // System messages don't show 'System:' prefix explicitly
-            } else {
-                item.textContent = `${user}: ${msg}`; // Set its text content
-            }
-            messages.appendChild(item); // Add the list item to the messages list
-            window.scrollTo(0, document.body.scrollHeight); // Scroll to the bottom
-        }
+    function sendMessage() {
+      const msg = input.value.trim();
+      if (msg) {
+        socket.emit('chat message', msg);
+        input.value = '';
+        socket.emit('stop typing');
+        typing = false;
+      }
+    }
 
-        // --- Optional: Listen for connect/disconnect events on client ---
-        socket.on('connect', () => {
-            console.log('✅ Connected to server:', socket.id);
-            getUsername(); // Ask for username after connecting
-        });
+    input.addEventListener('input', () => {
+      if (!typing) {
+        typing = true;
+        socket.emit('typing');
+      }
 
-        socket.on('disconnect', () => {
-            console.log('❌ Disconnected from server');
-            displayMessage('System', 'You have been disconnected.', true);
-        });
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        typing = false;
+        socket.emit('stop typing');
+      }, 1000);
+    });
 
-    </script>
+    socket.on('chat message', ({ user, msg }) => {
+      const item = document.createElement('li');
+      item.textContent = `${user}: ${msg}`;
+      messages.appendChild(item);
+    });
+
+    socket.on('system message', (msg) => {
+      const item = document.createElement('li');
+      item.style.color = 'gray';
+      item.textContent = `[System] ${msg}`;
+      messages.appendChild(item);
+    });
+
+    socket.on('user typing', (username) => {
+      typingNotice.innerText = `${username} is typing...`;
+    });
+
+    socket.on('user stopped typing', (username) => {
+      typingNotice.innerText = '';
+    });
+
+    socket.on('user list', (userArray) => {
+      const userList = document.getElementById('userList');
+      userList.innerHTML = '';
+      userArray.forEach(user => {
+        const li = document.createElement('li');
+        li.textContent = user;
+        userList.appendChild(li);
+      });
+    });
+  </script>
 </body>
 </html>
