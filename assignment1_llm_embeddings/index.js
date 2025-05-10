@@ -21,6 +21,7 @@ if (!process.env.OPENAI_API_KEY) {
   console.error('Please make sure you have a .env file with your OpenAI API key.');
   process.exit(1);
 }
+console.log('Loaded API Key:', process.env.OPENAI_API_KEY);
 
 // Main function to demonstrate RAG
 async function runRAGDemo() {
